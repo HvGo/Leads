@@ -1418,7 +1418,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor CRM ejecutándose en ${FRONTEND_URL}:${PORT}`);
-  console.log(`📊 API disponible en: ${BACKEND_URL}:${PORT}/api`);
+  console.log(`🚀 Servidor CRM ejecutándose en localhost:${PORT}`);
+  console.log(`📊 API disponible en: localhost:${PORT}/api`);
   console.log(`🐘 Conectando a PostgreSQL...`);
 });
