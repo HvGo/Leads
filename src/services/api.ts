@@ -1,6 +1,35 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:3001';
+// Detectar automáticamente la URL del backend
+const getApiBaseUrl = () => {
+  // Si hay variable de entorno específica, usarla
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  // Si estamos en producción, construir URL basada en el dominio actual
+  if (import.meta.env.PROD) {
+    const currentDomain = window.location.hostname;
+
+    // Si es un dominio de Render, construir URL del backend
+    if (currentDomain.includes('onrender.com')) {
+      // Asumir que el backend tiene el mismo nombre pero con -api o -backend
+      const backendDomain = currentDomain.replace(/^[^.]+/, (match) => {
+        // Si el frontend es "crm-frontend", el backend será "crm-backend"
+        return match.replace('frontend', 'backend').replace(/^crm$/, 'crm-backend');
+      });
+      return `https://${backendDomain}`;
+    }
+
+    // Para otros dominios de producción, usar variable de entorno o error
+    return import.meta.env.VITE_API_URL || 'https://your-backend-app.onrender.com';
+  }
+
+  // En desarrollo, usar localhost
+  return 'http://localhost:3001';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export const apiService = axios.create({
   baseURL: `${API_BASE_URL}/api`,
@@ -13,7 +42,7 @@ export const apiService = axios.create({
 // Request interceptor to add auth token
 apiService.interceptors.request.use(
   (config) => {
-    console.log('API Request:', config.method?.toUpperCase(), config.url); // Debug log
+    console.log('API Request:', config.method?.toUpperCase(), `${API_BASE_URL}${config.url}`); // Debug log
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -30,7 +59,7 @@ apiService.interceptors.request.use(
 apiService.interceptors.response.use(
   (response) => response,
   (error) => {
-    console.error('API Response error:', error.response?.status, error.response?.data || error.message);
+    console.error('API Response error:', `${API_BASE_URL}${error.config?.url}`, error.response?.status, error.response?.data || error.message);
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       window.location.href = '/login';
