@@ -2,14 +2,13 @@ import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import pkg from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
 const { Pool } = pkg;
 
-//const app = express();
-//const PORT = 3001;
-
-// Middleware
-//app.use(cors());
-//app.use(express.json());
+// ES modules compatibility
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables from .env file
 dotenv.config();
@@ -44,18 +43,62 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Serve static files from React build in production
+if (process.env.NODE_ENV === 'production') {
+  // Serve static files from the React app build directory
+  app.use(express.static(path.join(__dirname, 'dist')));
+}
+
 // PostgreSQL connection
 const pool = new Pool({
-  connectionString: 'postgresql://neondb_owner:npg_IqHxT9e6UrMf@ep-hidden-thunder-ad7nh364-pooler.c-2.us-east-1.aws.neon.tech/crm_system?sslmode=require&channel_binding=require',
-  ssl: { rejectUnauthorized: false },
+  // Configuración de conexión con validación de tipos
+  ...(process.env.DATABASE_URL ? {
+    connectionString: process.env.DATABASE_URL,
+  } : {
+    user: process.env.DB_USER || 'postgres',
+    host: process.env.DB_HOST || 'localhost',
+    database: process.env.DB_NAME || 'crm_system',
+    password: String(process.env.DB_PASSWORD || ''),
+    port: parseInt(process.env.DB_PORT) || 5432,
+  }),
+  // Configuración SSL
+  ssl: process.env.NODE_ENV === 'production' || process.env.DB_SSL === 'true' || process.env.DATABASE_URL?.includes('neon.tech')
+    ? { rejectUnauthorized: false }
+    : false,
+  // Configuración de pool optimizada
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 10000, // Aumentado para conexiones en la nube
+  acquireTimeoutMillis: 60000,
+  createTimeoutMillis: 30000,
+  destroyTimeoutMillis: 5000,
+  reapIntervalMillis: 1000,
+  createRetryIntervalMillis: 200,
 });
 
 // Test database connection with detailed info
 const testDatabaseConnection = async () => {
   try {
+    console.log('\n🔧 ===== CONNECTION CONFIGURATION =====');
+    console.log('Using DATABASE_URL:', !!process.env.DATABASE_URL);
+    if (process.env.DATABASE_URL) {
+      // Mostrar URL sin contraseña para seguridad
+      const urlParts = process.env.DATABASE_URL.split('@');
+      const safeUrl = urlParts.length > 1 ?
+        urlParts[0].split(':').slice(0, -1).join(':') + ':***@' + urlParts[1] :
+        'Invalid URL format';
+      console.log('DATABASE_URL (masked):', safeUrl);
+    } else {
+      console.log('Individual parameters:');
+      console.log(`   • Host: ${process.env.DB_HOST || 'localhost'}`);
+      console.log(`   • Port: ${process.env.DB_PORT || 5432}`);
+      console.log(`   • Database: ${process.env.DB_NAME || 'crm_system'}`);
+      console.log(`   • User: ${process.env.DB_USER || 'postgres'}`);
+      console.log(`   • Password: ${process.env.DB_PASSWORD ? '***' : 'NOT SET'}`);
+    }
+    console.log(`SSL Mode: ${process.env.NODE_ENV === 'production' || process.env.DB_SSL === 'true' || process.env.DATABASE_URL?.includes('neon.tech') ? 'Enabled' : 'Disabled'}`);
+    console.log('==========================================\n');
+
     const client = await pool.connect();
 
     // Get database info
@@ -181,9 +224,10 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.get('/api/auth/me', async (req, res) => {
+app.get('/api/auth/me/:userId', async (req, res) => {
   try {
-    // En un sistema real, validarías el token aquí
+    const { userId } = req.params;
+
     // Validar token del header
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -208,7 +252,7 @@ app.get('/api/auth/me', async (req, res) => {
       LEFT JOIN roles r ON u.role_id = r.id
       LEFT JOIN role_permissions rp ON r.id = rp.role_id
       LEFT JOIN permissions p ON rp.permission_id = p.id
-      WHERE u.email = $1 AND u.status = $2
+      WHERE u.id = $1 AND u.status = $2
       GROUP BY u.id, u.email, u.name, u.status, r.name, r.display_name
     `,
       [userId, 'ACTIVE']
@@ -1361,9 +1405,20 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Serve React app for all non-API routes in production
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    // Don't serve React app for API routes
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  });
+}
+
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor CRM ejecutándose en http://localhost:${PORT}`);
-  console.log(`📊 API disponible en: http://localhost:${PORT}/api`);
-  console.log(`🔑 Credenciales: admin@crm.com / admin123`);
+  console.log(`🚀 Servidor CRM ejecutándose en ${FRONTEND_URL}:${PORT}`);
+  console.log(`📊 API disponible en: ${BACKEND_URL}:${PORT}/api`);
   console.log(`🐘 Conectando a PostgreSQL...`);
 });
