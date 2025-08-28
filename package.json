@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "start": "npm run build && node server.js",
     "server": "node server.js",
-    "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
+    "dev:all": "npx concurrently \"npm run server\" \"npm run dev\"",
     "db:migrate": "node -e \"console.log('Migrations will run automatically on server start')\"",
     "db:status": "node -e \"console.log('Check server logs for database connection status')\""
   },
@@ -34,13 +34,11 @@
     "@eslint/js": "^9.9.1",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
-    "concurrently": "^9.2.1",
     "eslint": "^9.9.1",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",
     "globals": "^15.9.0",
     "typescript": "^5.5.3",
-    "typescript-eslint": "^8.3.0",
-    "concurrently": "^9.2.1"
+    "typescript-eslint": "^8.3.0"
   }
 }
