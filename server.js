@@ -1,13 +1,47 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import pkg from 'pg';
 const { Pool } = pkg;
 
-const app = express();
-const PORT = 3001;
+//const app = express();
+//const PORT = 3001;
 
 // Middleware
-app.use(cors());
+//app.use(cors());
+//app.use(express.json());
+
+// Load environment variables from .env file
+dotenv.config();
+
+// Debug: Show environment variables (remove in production)
+console.log('\n🔧 ===== ENVIRONMENT VARIABLES =====');
+console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
+console.log('PORT:', process.env.PORT || '3001');
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+console.log('DB_HOST:', process.env.DB_HOST || 'NOT SET');
+console.log('DB_PORT:', process.env.DB_PORT || 'NOT SET');
+console.log('DB_NAME:', process.env.DB_NAME || 'NOT SET');
+console.log('DB_USER:', process.env.DB_USER || 'NOT SET');
+console.log('DB_PASSWORD:', process.env.DB_PASSWORD ? 'SET' : 'NOT SET');
+console.log('DB_SSL:', process.env.DB_SSL || 'NOT SET');
+console.log('FRONTEND_URL:', process.env.FRONTEND_URL || 'NOT SET');
+console.log('BACKEND_URL:', process.env.BACKEND_URL || 'NOT SET');
+console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'SET' : 'NOT SET');
+console.log('=====================================\n');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Middleware
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? [process.env.FRONTEND_URL, 'https://your-frontend-app.onrender.com']
+    : ['http://localhost:5173', 'http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // PostgreSQL connection
