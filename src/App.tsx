@@ -8,6 +8,8 @@ import { LeadsPage } from './pages/LeadsPage';
 import { LeadDetailsPage } from './pages/LeadDetailsPage';
 import { InteractionsPage } from './pages/InteractionsPage';
 import { UsersPage } from './pages/UsersPage';
+import { RolesPage } from './pages/RolesPage';
+import { PermissionsPage } from './pages/PermissionsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
 
@@ -103,6 +105,24 @@ function App() {
               element={
                 <ProtectedRoute>
                   <UsersPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/roles" 
+              element={
+                <ProtectedRoute>
+                  <RolesPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/permissions" 
+              element={
+                <ProtectedRoute>
+                  <PermissionsPage />
                 </ProtectedRoute>
               } 
             />
