@@ -10,19 +10,11 @@ const getApiBaseUrl = () => {
   // Si estamos en producción, construir URL basada en el dominio actual
   if (import.meta.env.PROD) {
     const currentDomain = window.location.hostname;
+    const currentProtocol = window.location.protocol;
+    const currentPort = window.location.port;
 
-    // Si es un dominio de Render, construir URL del backend
-    if (currentDomain.includes('onrender.com')) {
-      // Asumir que el backend tiene el mismo nombre pero con -api o -backend
-      const backendDomain = currentDomain.replace(/^[^.]+/, (match) => {
-        // Si el frontend es "crm-frontend", el backend será "crm-backend"
-        return match.replace('frontend', 'backend').replace(/^crm$/, 'crm-backend');
-      });
-      return `https://${backendDomain}`;
-    }
-
-    // Para otros dominios de producción, usar variable de entorno o error
-    return import.meta.env.VITE_API_URL || 'https://your-backend-app.onrender.com';
+    // En producción, el backend está en el mismo dominio
+    return `${currentProtocol}//${currentDomain}${currentPort ? ':' + currentPort : ''}`;
   }
 
   // En desarrollo, usar localhost
@@ -104,4 +96,23 @@ export const tagService = {
 export const analyticsService = {
   getDashboard: (period: string = '30') =>
     apiService.get(`/analytics/dashboard?period=${period}`),
+};
+
+// Health check service
+export const healthService = {
+  check: () => apiService.get('/health'),
+  getStatus: async () => {
+    try {
+      const response = await apiService.get('/health');
+      return {
+        status: 'healthy',
+        data: response.data
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        error: error.response?.data || error.message
+      };
+    }
+  }
 };

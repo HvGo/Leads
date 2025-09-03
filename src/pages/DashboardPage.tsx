@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Users, UserCheck, TrendingUp, Phone, Calendar, AlertTriangle, ArrowRight, User } from 'lucide-react';
+import { Users, UserCheck, TrendingUp, Phone, Calendar, AlertTriangle, ArrowRight, User, Activity, Database } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { analyticsService } from '../services/api';
+import { analyticsService, healthService } from '../services/api';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Badge } from '../components/ui/Badge';
 
@@ -50,11 +50,13 @@ const statusColors: { [key: string]: string } = {
 
 export const DashboardPage: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [systemHealth, setSystemHealth] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('30');
 
   useEffect(() => {
     loadDashboardStats();
+    loadSystemHealth();
   }, [period]);
 
   const loadDashboardStats = async () => {
@@ -66,6 +68,19 @@ export const DashboardPage: React.FC = () => {
       console.error('Error loading dashboard stats:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSystemHealth = async () => {
+    try {
+      const health = await healthService.getStatus();
+      setSystemHealth(health);
+    } catch (error) {
+      console.error('Error loading system health:', error);
+      setSystemHealth({
+        status: 'error',
+        error: 'Unable to check system health'
+      });
     }
   };
 
@@ -94,7 +109,7 @@ export const DashboardPage: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-gray-600 mt-1">Resumen del rendimiento del sistema CRM</p>
         </div>
-        
+
         <div className="flex items-center space-x-3">
           <label htmlFor="period" className="text-sm font-medium text-gray-700">
             Período:
@@ -178,6 +193,72 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* System Health Status */}
+      {systemHealth && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+              <Activity className="h-5 w-5 mr-2" />
+              Estado del Sistema
+            </h3>
+            <Badge variant={systemHealth.status === 'healthy' ? 'success' : systemHealth.status === 'error' ? 'error' : 'warning'}>
+              {systemHealth.status === 'healthy' ? 'Saludable' :
+                systemHealth.status === 'error' ? 'Error' : 'Degradado'}
+            </Badge>
+          </div>
+
+          {systemHealth.data?.services && (
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              {Object.entries(systemHealth.data.services).map(([serviceName, service]: [string, any]) => (
+                <div key={serviceName} className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-center mb-2">
+                    {serviceName === 'database' && <Database className="h-6 w-6" />}
+                    {serviceName === 'api' && <Activity className="h-6 w-6" />}
+                    {serviceName === 'frontend' && <User className="h-6 w-6" />}
+                    {serviceName === 'filesystem' && <Calendar className="h-6 w-6" />}
+                    {serviceName === 'environment' && <TrendingUp className="h-6 w-6" />}
+                  </div>
+                  <p className="text-sm font-medium text-gray-900 capitalize mb-1">
+                    {serviceName === 'database' ? 'Base de Datos' :
+                      serviceName === 'api' ? 'API' :
+                        serviceName === 'frontend' ? 'Frontend' :
+                          serviceName === 'filesystem' ? 'Archivos' :
+                            serviceName === 'environment' ? 'Variables' : serviceName}
+                  </p>
+                  <Badge
+                    variant={service.status === 'healthy' ? 'success' :
+                      service.status === 'error' ? 'error' :
+                        service.status === 'warning' ? 'warning' : 'info'}
+                    size="sm"
+                  >
+                    {service.status === 'healthy' ? 'OK' :
+                      service.status === 'error' ? 'Error' :
+                        service.status === 'warning' ? 'Alerta' : 'Info'}
+                  </Badge>
+                  {service.details && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {service.details.users !== undefined && `${service.details.users} usuarios`}
+                      {service.details.leads !== undefined && `, ${service.details.leads} leads`}
+                      {service.details.port && `Puerto ${service.details.port}`}
+                      {service.details.assetFiles && `${service.details.assetFiles} archivos`}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {systemHealth.data?.summary && (
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>Resumen:</strong> {systemHealth.data.summary.healthy}/{systemHealth.data.summary.total} servicios saludables
+                ({systemHealth.data.summary.percentage}%)
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Quick Navigation */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -256,7 +337,7 @@ export const DashboardPage: React.FC = () => {
             {stats.leadsByStatus.map((item) => (
               <div key={item.status} className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <div 
+                  <div
                     className={`w-3 h-3 rounded-full ${statusColors[item.status] || 'bg-gray-400'}`}
                   />
                   <span className="text-sm font-medium text-gray-700">

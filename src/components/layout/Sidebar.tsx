@@ -71,7 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const menuItems = getMenuItems();
 
-  const filteredMenuItems = menuItems.filter(item => 
+  const filteredMenuItems = menuItems.filter(item =>
     !item.permission || hasPermission(item.permission)
   );
 
@@ -100,9 +100,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
                 <BarChart3 className="h-5 w-5 text-white" />
               </div>
-              <span className="ml-3 text-xl font-semibold text-gray-900">CRM Pro</span>
+              <span className="ml-3 text-xl font-semibold text-gray-900">Leads </span>
             </div>
-            
+
             <button
               onClick={onClose}
               className="lg:hidden p-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
