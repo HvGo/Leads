@@ -11,6 +11,7 @@ import { UsersPage } from './pages/UsersPage';
 import { RolesPage } from './pages/RolesPage';
 import { PermissionsPage } from './pages/PermissionsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -132,6 +133,15 @@ function App() {
               element={
                 <ProtectedRoute>
                   <AnalyticsPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/settings" 
+              element={
+                <ProtectedRoute>
+                  <SettingsPage />
                 </ProtectedRoute>
               } 
             />

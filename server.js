@@ -1,12 +1,20 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import pkg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
 const { Pool } = pkg;
 import fs from 'fs';
 import { promisify } from 'util';
+
+// Importar middlewares y utilidades de seguridad
+import { hashPassword, comparePassword, generateToken } from './src/utils/auth.js';
+import { authenticateToken, requirePermission, requireRole, canAccessLead } from './src/middleware/auth.js';
+import { validate, loginSchema, userSchema, leadSchema, interactionSchema, validateUUID } from './src/middleware/validation.js';
+import { errorHandler, asyncHandler, notFound, AppError, logger } from './src/middleware/errorHandler.js';
 
 // ES modules compatibility
 const __filename = fileURLToPath(import.meta.url);
@@ -33,6 +41,34 @@ console.log('=====================================\n');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Crear directorio de logs si no existe
+if (!fs.existsSync('logs')) {
+  fs.mkdirSync('logs');
+}
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100, // límite de 100 requests por ventana por IP
+  message: {
+    error: 'Demasiadas solicitudes desde esta IP, intenta de nuevo en 15 minutos.',
+    code: 'RATE_LIMIT_EXCEEDED'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting más estricto para login
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // límite de 5 intentos de login por IP
+  message: {
+    error: 'Demasiados intentos de login, intenta de nuevo en 15 minutos.',
+    code: 'LOGIN_RATE_LIMIT_EXCEEDED'
+  },
+  skipSuccessfulRequests: true,
+});
 
 // Service validation utilities
 const validateServices = async () => {
@@ -78,12 +114,12 @@ const validateServices = async () => {
 
   // 2. Filesystem validation
   try {
-    const staticPath = join(__dirname, 'dist');
-    const indexPath = join(staticPath, 'index.html');
+    const staticPath = path.join(__dirname, 'dist');
+    const indexPath = path.join(staticPath, 'index.html');
 
     if (process.env.NODE_ENV === 'production') {
       const indexExists = fs.existsSync(indexPath);
-      const assetsPath = join(staticPath, 'assets');
+      const assetsPath = path.join(staticPath, 'assets');
       const assetsExists = fs.existsSync(assetsPath);
 
       if (indexExists && assetsExists) {
@@ -231,16 +267,96 @@ const validateServices = async () => {
   console.log('================================\n');
 
   return services;
-  // Validate all services on startup
-  await validateServices();
-
 };
 
-console.log('🎯 Server is ready to accept connections!');
-credentials: true,
-  console.error('🔴 Server started with errors - check service validation above');
+// Helmet configurado específicamente para HTTP (sin SSL)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "http:", "https:"],
+      connectSrc: ["'self'", "http:", "https:"],
+      fontSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: false,
+  crossOriginResourcePolicy: false,
+  hsts: false, // Crítico: deshabilitar HSTS para HTTP
+  noSniff: true, // Mantener protección MIME
+  frameguard: { action: 'deny' }, // Protección clickjacking
+  xssFilter: true, // Protección XSS básica
 }));
-app.use(express.json());
+
+// CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Get origins from environment variable or use defaults
+    const envOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [];
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:5173',
+      process.env.FRONTEND_URL,
+      process.env.BACKEND_URL,
+      ...envOrigins
+    ].filter(Boolean);
+    
+    // Log CORS attempt for debugging
+    logger.info('CORS request', { origin, allowed: allowedOrigins.includes(origin) });
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      logger.warn('CORS blocked', { origin, allowedOrigins });
+      callback(new Error(`CORS: Origin ${origin} not allowed`));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Cache-Control',
+    'X-File-Name'
+  ],
+  exposedHeaders: ['Authorization'],
+  maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
+
+// Rate limiting
+app.use('/api/', limiter);
+
+// Body parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Request logging
+app.use((req, res, next) => {
+  logger.info({
+    method: req.method,
+    url: req.url,
+    ip: req.ip,
+    userAgent: req.get('User-Agent')
+  });
+  next();
+});
 
 // Serve static files from React build in production
 if (process.env.NODE_ENV === 'production') {
@@ -372,118 +488,80 @@ function generateId() {
 }
 
 // RUTAS DE AUTENTICACIÓN
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
+app.post('/api/auth/login', loginLimiter, validate(loginSchema), asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
 
-    console.log('Login attempt:', { email }); // No logear password
+  logger.info('Login attempt', { email });
 
-    const result = await pool.query(
-      `SELECT 
-        u.id, u.email, u.name, u.status,
-        r.name as role_name,
-        r.display_name as role_display_name,
-        ARRAY_AGG(p.name) as permissions
-      FROM users u
-      LEFT JOIN roles r ON u.role_id = r.id
-      LEFT JOIN role_permissions rp ON r.id = rp.role_id
-      LEFT JOIN permissions p ON rp.permission_id = p.id
-      WHERE u.email = $1 AND u.password = $2 AND u.status = $3
-      GROUP BY u.id, u.email, u.name, u.status, r.name, r.display_name
-    `,
-      [email, password, 'ACTIVE']
-    );
+  const result = await pool.query(
+    `SELECT 
+      u.id, u.email, u.name, u.status, u.password,
+      r.name as role_name,
+      r.display_name as role_display_name,
+      ARRAY_AGG(p.name) as permissions
+    FROM users u
+    LEFT JOIN roles r ON u.role_id = r.id
+    LEFT JOIN role_permissions rp ON r.id = rp.role_id
+    LEFT JOIN permissions p ON rp.permission_id = p.id
+    WHERE u.email = $1 AND u.status = $2
+    GROUP BY u.id, u.email, u.name, u.status, u.password, r.name, r.display_name
+  `,
+    [email, 'ACTIVE']
+  );
 
-    if (result.rows.length === 0) {
-      return res.status(400).json({ error: 'Credenciales inválidas' });
-    }
-
-    const user = result.rows[0];
-
-    // Actualizar último login
-    await pool.query(
-      'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-      [user.id]
-    );
-
-    res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role_name || 'viewer',
-        roleDisplayName: user.role_display_name || 'Visualizador',
-        permissions: user.permissions || []
-      },
-      token: 'simple-token-' + user.id
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Error en login' });
+  if (result.rows.length === 0) {
+    throw new AppError('Credenciales inválidas', 401, 'INVALID_CREDENTIALS');
   }
-});
 
-app.get('/api/auth/me/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
+  const user = result.rows[0];
 
-    // Validar token del header
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Token de autenticación requerido' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const tokenUserId = token.replace('simple-token-', '');
-
-    // Verificar que el token corresponde al usuario solicitado
-    if (tokenUserId !== userId) {
-      return res.status(401).json({ error: 'Token no válido para este usuario' });
-    }
-
-    const result = await pool.query(`
-      SELECT 
-        u.id, u.email, u.name, u.status,
-        r.name as role_name,
-        r.display_name as role_display_name,
-        ARRAY_AGG(p.name) as permissions
-      FROM users u
-      LEFT JOIN roles r ON u.role_id = r.id
-      LEFT JOIN role_permissions rp ON r.id = rp.role_id
-      LEFT JOIN permissions p ON rp.permission_id = p.id
-      WHERE u.id = $1 AND u.status = $2
-      GROUP BY u.id, u.email, u.name, u.status, r.name, r.display_name
-    `,
-      [userId, 'ACTIVE']
-    );
-
-    if (result.rows.length > 0) {
-      const user = result.rows[0];
-
-      // Actualizar último login
-      await pool.query(
-        'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-        [user.id]
-      );
-
-      res.json({
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role_name || 'viewer',
-          roleDisplayName: user.role_display_name || 'Visualizador',
-          permissions: user.permissions || []
-        }
-      });
-    } else {
-      res.status(401).json({ error: 'Usuario no encontrado' });
-    }
-  } catch (error) {
-    console.error('Auth me error:', error);
-    res.status(500).json({ error: 'Error de autenticación' });
+  // Verificar contraseña
+  const isValidPassword = await comparePassword(password, user.password);
+  if (!isValidPassword) {
+    logger.warn('Failed login attempt', { email, ip: req.ip });
+    throw new AppError('Credenciales inválidas', 401, 'INVALID_CREDENTIALS');
   }
-});
+
+  // Generar token JWT
+  const token = generateToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role_name || 'viewer'
+  });
+
+  // Actualizar último login
+  await pool.query(
+    'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
+    [user.id]
+  );
+
+  logger.info('Successful login', { userId: user.id, email });
+
+  res.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role_name || 'viewer',
+      roleDisplayName: user.role_display_name || 'Visualizador',
+      permissions: user.permissions || []
+    },
+    token
+  });
+}));
+
+app.get('/api/auth/me', authenticateToken, asyncHandler(async (req, res) => {
+  // El middleware authenticateToken ya validó el token y cargó el usuario
+  res.json({
+    user: req.user
+  });
+}));
+
+// Ruta de logout
+app.post('/api/auth/logout', authenticateToken, asyncHandler(async (req, res) => {
+  logger.info('User logout', { userId: req.user.id });
+  res.json({ message: 'Logout exitoso' });
+}));
 
 // RUTAS DE LEADS
 app.get('/api/leads', async (req, res) => {
@@ -1668,6 +1746,46 @@ app.get('/api/analytics/dashboard', async (req, res) => {
   }
 });
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT,
+    host: process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost'
+  });
+});
+
+// Test database connection
+app.get('/api/test-db', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT NOW() as current_time');
+    res.json({ 
+      success: true, 
+      message: 'Database connection successful',
+      timestamp: result.rows[0].current_time 
+    });
+  } catch (error) {
+    console.error('Database test error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Database connection failed',
+      error: error.message 
+    });
+  }
+});
+
+// Ruta de prueba
+app.get('/api/test', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'API funcionando correctamente con PostgreSQL',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // RUTAS DE CONFIGURACIÓN
 app.get('/api/settings', async (req, res) => {
   try {
@@ -1684,98 +1802,80 @@ app.get('/api/settings', async (req, res) => {
   }
 });
 
-// Ruta de prueba
-app.get('/api/test', (req, res) => {
-  res.json({
-    status: 'OK',
-    message: 'API funcionando correctamente con PostgreSQL',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Health check
-app.get('/api/health', async (req, res) => {
-  try {
-    const client = await pool.connect();
-
-    // Get detailed database info
-    const dbInfo = await client.query(`
-      SELECT 
-        current_database() as database_name,
-        current_user as connected_user,
-        version() as postgres_version
-    `);
-
-    // Check tables
-    const tablesResult = await client.query(`
-      SELECT COUNT(*) as table_count
-      FROM information_schema.tables 
-      WHERE table_schema = 'public' 
-      AND table_name IN ('users', 'leads', 'interactions', 'roles', 'permissions')
-    `);
-
-    // Get record counts
-    const userCount = await client.query('SELECT COUNT(*) FROM users');
-    const leadCount = await client.query('SELECT COUNT(*) FROM leads');
-
-    client.release();
-
-    res.json({
-      status: 'OK',
-      database: {
-        status: 'Connected',
-        name: dbInfo.rows[0].database_name,
-        user: dbInfo.rows[0].connected_user,
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 5432,
-        version: dbInfo.rows[0].postgres_version.split(' ')[1],
-        tables_found: parseInt(tablesResult.rows[0].table_count),
-        records: {
-          users: parseInt(userCount.rows[0].count),
-          leads: parseInt(leadCount.rows[0].count)
-    const services = await validateServices();
-
-          const healthyServices = Object.values(services).filter(s => s.status === 'healthy').length;
-          const totalServices = Object.keys(services).length;
-          const hasErrors = Object.values(services).some(s => s.status === 'error');
-        } catch(error) {
-          res.status(500).json({
-            status: hasErrors ? 'degraded' : 'healthy',
-            timestamp: new Date().toISOString(),
-            services: services,
-            summary: {
-              healthy: healthyServices,
-              total: totalServices,
-              percentage: Math.round((healthyServices / totalServices) * 100)
-            }
-        port: process.env.DB_PORT || 5432,
-            name: process.env.DB_NAME || 'crm_system'
-          },
-            error: error.message,
-            timestamp: new Date().toISOString(),
-            error: error.message,
-            services: {
-            database: { status: 'error', message: error.message }
-          }
-    });
-  }
-});
-
-// Serve React app for all non-API routes in production
+// Serve static files from dist directory in production
 if (process.env.NODE_ENV === 'production') {
+  // Log para debugging
+  console.log('🔍 Configurando archivos estáticos para producción...');
+  console.log('📁 Directorio dist:', path.join(__dirname, 'dist'));
+  
+  // Serve static assets con configuración mínima para evitar problemas SSL
+  app.use(express.static(path.join(__dirname, 'dist'), {
+    maxAge: 0,
+    etag: false,
+    setHeaders: (res, filePath) => {
+      // Headers mínimos para evitar SSL issues
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      }
+      if (filePath.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      }
+      if (filePath.endsWith('.css')) {
+        res.setHeader('Content-Type', 'text/css; charset=utf-8');
+      }
+    }
+  }));
+  
+  // Serve test file
+  app.get('/test', (req, res) => {
+    res.sendFile(path.join(__dirname, 'test-simple.html'));
+  });
+  
+  // Serve React app for all non-API routes
   app.get('*', (req, res) => {
     // Don't serve React app for API routes
     if (req.path.startsWith('/api/')) {
       return res.status(404).json({ error: 'API endpoint not found' });
     }
 
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    const indexPath = path.join(__dirname, 'dist', 'index.html');
+    
+    console.log(`📄 Solicitando: ${req.path}`);
+    console.log(`📁 Buscando index.html en: ${indexPath}`);
+    
+    // Verificar que el archivo existe
+    if (fs.existsSync(indexPath)) {
+      console.log('✅ Sirviendo index.html');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.sendFile(indexPath);
+    } else {
+      console.log('❌ index.html no encontrado');
+      res.status(404).json({ 
+        error: 'Frontend build not found. Run "npm run build" first.',
+        path: indexPath,
+        exists: fs.existsSync(path.join(__dirname, 'dist'))
+      });
+    }
   });
+} else {
+  console.log('🔧 Modo desarrollo - no sirviendo archivos estáticos');
 }
 
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor CRM ejecutándose en http://localhost:${PORT}`);
-  console.log(`📊 API disponible en: http://localhost:${PORT}/api`);
-  console.log(`🔑 Credenciales: admin@crm.com / admin123`);
-  console.log(`🐘 Conectando a PostgreSQL...`);
-});
+// Start server
+const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Servidor CRM ejecutándose en http://${HOST}:${PORT}`);
+  console.log(`📊 API disponible en: http://${HOST}:${PORT}/api`);
+  console.log('🔑 Credenciales: admin@crm.com / admin123');
+  
+  if (process.env.NODE_ENV === 'production') {
+    console.log('🌐 Servidor configurado para aceptar conexiones externas');
+    console.log(`🔥 Firewall: Asegúrate de que el puerto ${PORT} esté abierto`);
+  }
+});  
+console.log(`🐘 Conectando a PostgreSQL...`);

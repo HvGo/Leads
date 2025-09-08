@@ -4,6 +4,7 @@ import axios from 'axios';
 const getApiBaseUrl = () => {
   // Si hay variable de entorno específica, usarla
   if (import.meta.env.VITE_API_URL) {
+    console.log('Using VITE_API_URL:', import.meta.env.VITE_API_URL);
     return import.meta.env.VITE_API_URL;
   }
 
@@ -13,11 +14,14 @@ const getApiBaseUrl = () => {
     const currentProtocol = window.location.protocol;
     const currentPort = window.location.port;
 
-    // En producción, el backend está en el mismo dominio
-    return `${currentProtocol}//${currentDomain}${currentPort ? ':' + currentPort : ''}`;
+    // En producción, el backend está en el mismo dominio y puerto
+    const baseUrl = `${currentProtocol}//${currentDomain}${currentPort ? ':' + currentPort : ''}`;
+    console.log('Production API URL:', baseUrl);
+    return baseUrl;
   }
 
   // En desarrollo, usar localhost
+  console.log('Development API URL: http://localhost:3001');
   return 'http://localhost:3001';
 };
 
@@ -111,7 +115,7 @@ export const healthService = {
     } catch (error) {
       return {
         status: 'error',
-        error: error.response?.data || error.message
+        error: (error as any).response?.data || (error as any).message
       };
     }
   }

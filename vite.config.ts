@@ -9,8 +9,15 @@ export default defineConfig({
     __API_URL__: JSON.stringify(process.env.VITE_API_URL),
   },
   server: {
-    host: true,
+    host: '0.0.0.0', // Permite acceso externo
     port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
   },
   preview: {
     host: true,
@@ -18,6 +25,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    assetsDir: 'assets',
     sourcemap: false,
     rollupOptions: {
       output: {
@@ -28,6 +36,7 @@ export default defineConfig({
       },
     },
   },
+  base: './', // Usar rutas relativas en lugar de absolutas
   optimizeDeps: {
     exclude: ['lucide-react'],
   },

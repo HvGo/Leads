@@ -5,14 +5,19 @@ import { Select } from '../ui/Select';
 import { Modal } from '../ui/Modal';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { User, Mail, Phone, Shield, Building, FileText } from 'lucide-react';
+import { User, Mail, Phone, Shield, Building } from 'lucide-react';
 
 interface UserFormProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (data: any) => Promise<void>;
+  isOpen?: boolean;
+  onClose?: () => void;
+  onSubmit?: (data: any) => Promise<void>;
+  onSave?: (data: any) => Promise<void>;
+  onCancel?: () => void;
   initialData?: any;
-  mode: 'create' | 'edit';
+  user?: any;
+  mode?: 'create' | 'edit';
+  loading?: boolean;
+  isProfile?: boolean;
 }
 
 interface Role {
@@ -23,11 +28,16 @@ interface Role {
 }
 
 export const UserForm: React.FC<UserFormProps> = ({
-  isOpen,
-  onClose,
+  isOpen = false,
+  onClose = () => {},
   onSubmit,
+  onSave,
+  onCancel,
   initialData,
-  mode
+  user: propUser,
+  mode = 'edit',
+  loading: externalLoading = false,
+  isProfile = false
 }) => {
   const { user } = useAuth();
   const [formData, setFormData] = useState({
@@ -43,7 +53,7 @@ export const UserForm: React.FC<UserFormProps> = ({
     bio: ''
   });
   const [roles, setRoles] = useState<Role[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(externalLoading);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
   useEffect(() => {
@@ -158,10 +168,14 @@ export const UserForm: React.FC<UserFormProps> = ({
       };
       
       // Remover confirmPassword del objeto a enviar
-      delete submitData.confirmPassword;
+      const { confirmPassword, ...finalData } = submitData;
       
-      await onSubmit(submitData);
-      onClose();
+      if (isProfile && onSave) {
+        await onSave(finalData);
+      } else if (onSubmit) {
+        await onSubmit(finalData);
+        onClose();
+      }
     } catch (error) {
       console.error('Error submitting form:', error);
     } finally {
@@ -195,13 +209,7 @@ export const UserForm: React.FC<UserFormProps> = ({
     label: role.display_name || role.name
   }));
 
-  return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={mode === 'create' ? 'Nuevo Usuario' : 'Editar Usuario'}
-      size="lg"
-    >
+  const FormContent = () => (
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Basic Information */}
@@ -332,6 +340,20 @@ export const UserForm: React.FC<UserFormProps> = ({
           </Button>
         </div>
       </form>
+  );
+
+  if (isProfile) {
+    return <FormContent />;
+  }
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={mode === 'create' ? 'Nuevo Usuario' : 'Editar Usuario'}
+      size="lg"
+    >
+      <FormContent />
     </Modal>
   );
 };

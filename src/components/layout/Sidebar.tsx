@@ -63,6 +63,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           icon: TrendingUp,
           permission: 'analytics.read',
         },
+        {
+          name: 'Configuración',
+          href: '/settings',
+          icon: Settings,
+          permission: null,
+        },
       ];
     }
 
