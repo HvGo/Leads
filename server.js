@@ -293,6 +293,12 @@ app.use(helmet({
   xssFilter: true, // Protección XSS básica
 }));
 
+// Agregar header Origin-Agent-Cluster
+app.use((req, res, next) => {
+  res.setHeader('Origin-Agent-Cluster', '?1');
+  next();
+});
+
 // CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
