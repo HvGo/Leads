@@ -269,33 +269,28 @@ const validateServices = async () => {
   return services;
 };
 
-// Helmet configurado específicamente para HTTP (sin SSL)
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "http:", "https:"],
-      connectSrc: ["'self'", "http:", "https:"],
-      fontSrc: ["'self'", "data:"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
-    },
-  },
-  crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: false,
-  crossOriginResourcePolicy: false,
-  hsts: false, // Crítico: deshabilitar HSTS para HTTP
-  noSniff: true, // Mantener protección MIME
-  frameguard: { action: 'deny' }, // Protección clickjacking
-  xssFilter: true, // Protección XSS básica
-}));
+// HELMET COMPLETAMENTE DESHABILITADO para evitar SSL issues en HTTP
+// app.use(helmet({
+//   contentSecurityPolicy: false,
+//   crossOriginEmbedderPolicy: false,
+//   crossOriginOpenerPolicy: false,
+//   crossOriginResourcePolicy: false,
+//   hsts: false,
+// }));
 
-// Agregar header Origin-Agent-Cluster
+// Headers mínimos y seguros para HTTP
 app.use((req, res, next) => {
-  res.setHeader('Origin-Agent-Cluster', '?1');
+  // NO forzar SSL/HTTPS
+  res.removeHeader('Strict-Transport-Security');
+  
+  // Headers básicos de seguridad sin SSL
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  
+  // Permitir origin-agent-cluster pero sin forzar
+  res.setHeader('Origin-Agent-Cluster', '?0');
+  
   next();
 });
 
@@ -1814,16 +1809,21 @@ if (process.env.NODE_ENV === 'production') {
   console.log('🔍 Configurando archivos estáticos para producción...');
   console.log('📁 Directorio dist:', path.join(__dirname, 'dist'));
   
-  // Serve static assets con configuración mínima para evitar problemas SSL
+  // Serve static assets SIN headers que fuercen SSL
   app.use(express.static(path.join(__dirname, 'dist'), {
     maxAge: 0,
     etag: false,
     setHeaders: (res, filePath) => {
-      // Headers mínimos para evitar SSL issues
+      // REMOVER cualquier header SSL
+      res.removeHeader('Strict-Transport-Security');
+      res.removeHeader('Upgrade-Insecure-Requests');
+      
+      // Headers mínimos sin SSL
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
       
+      // Content-Type correcto
       if (filePath.endsWith('.html')) {
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
       }
@@ -1833,6 +1833,9 @@ if (process.env.NODE_ENV === 'production') {
       if (filePath.endsWith('.css')) {
         res.setHeader('Content-Type', 'text/css; charset=utf-8');
       }
+      
+      // Asegurar que NO se fuerce HTTPS
+      res.setHeader('Content-Security-Policy', "default-src 'self' 'unsafe-inline' 'unsafe-eval' http: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';");
     }
   }));
   
@@ -1856,7 +1859,13 @@ if (process.env.NODE_ENV === 'production') {
     // Verificar que el archivo existe
     if (fs.existsSync(indexPath)) {
       console.log('✅ Sirviendo index.html');
+      
+      // REMOVER headers SSL
+      res.removeHeader('Strict-Transport-Security');
+      res.removeHeader('Upgrade-Insecure-Requests');
+      
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(indexPath);
     } else {
       console.log('❌ index.html no encontrado');

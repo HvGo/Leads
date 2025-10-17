@@ -258,24 +258,24 @@ export const AnalyticsPage: React.FC = () => {
                   : '0';
                 
                 return (
-                  <div key={item.status} className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3 flex-1">
-                      <div className="w-full bg-gray-200 rounded-full h-2 mr-3">
-                        <div 
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${percentage}%` }}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900">
-                          {statusLabels[item.status] || item.status}
-                        </p>
-                        <p className="text-xs text-gray-500">{percentage}%</p>
+                  <div key={item.status} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-900">
+                        {statusLabels[item.status] || item.status}
+                      </span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-gray-500">{percentage}%</span>
+                        <Badge variant="default">
+                          {item.count}
+                        </Badge>
                       </div>
                     </div>
-                    <Badge variant="default" className="ml-3">
-                      {item.count}
-                    </Badge>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
                   </div>
                 );
               })}
